@@ -25,7 +25,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "gui.h"
+#include "app_state.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -139,11 +140,14 @@ void MX_FREERTOS_Init(void) {
 void StartGUITask(void const * argument)
 {
   /* USER CODE BEGIN StartGUITask */
+  GUI_Init();
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+	GUI_Update();
+	osDelay(100);
   }
+  /* Infinite loop */
   /* USER CODE END StartGUITask */
 }
 
