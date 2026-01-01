@@ -57,6 +57,8 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define SIMISTOR_Pin GPIO_PIN_13
+#define SIMISTOR_GPIO_Port GPIOC
 #define S1_Pin GPIO_PIN_0
 #define S1_GPIO_Port GPIOA
 #define S2_Pin GPIO_PIN_1
@@ -75,17 +77,16 @@ void Error_Handler(void);
 #define D1_GPIO_Port GPIOA
 #define BATT_Pin GPIO_PIN_0
 #define BATT_GPIO_Port GPIOB
-#define Z_C_Pin GPIO_PIN_1
-#define Z_C_GPIO_Port GPIOB
-#define Z_C_EXTI_IRQn EXTI1_IRQn
-#define BUTTON_Pin GPIO_PIN_10
-#define BUTTON_GPIO_Port GPIOB
 #define DC_Pin GPIO_PIN_11
 #define DC_GPIO_Port GPIOB
 #define S_Button_Pin GPIO_PIN_13
 #define S_Button_GPIO_Port GPIOB
-#define SIMISTOR_Pin GPIO_PIN_8
-#define SIMISTOR_GPIO_Port GPIOA
+#define TRIAC_Pin GPIO_PIN_8
+#define TRIAC_GPIO_Port GPIOA
+#define ZC_Pin GPIO_PIN_12
+#define ZC_GPIO_Port GPIOA
+#define BT_STATE_Pin GPIO_PIN_4
+#define BT_STATE_GPIO_Port GPIOB
 #define BUZZER_Pin GPIO_PIN_8
 #define BUZZER_GPIO_Port GPIOB
 
