@@ -1,6 +1,7 @@
 #include "app_state.h"
 #include "flash_store.h"
 #include "dimmer.h"
+#include "adc.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -132,4 +133,23 @@ const char* AppState_GetDayOfWeekStr(uint8_t day_idx) {
 		return week_days[day_idx];
 	}
 	return week_days[0];
+}
+
+void AppState_UpdateBatteryVoltage(void) {
+	HAL_ADC_Start(&hadc1);
+
+	if (HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK) {
+		uint32_t raw = HAL_ADC_GetValue(&hadc1);
+
+		float current_volt = (float) raw * 6.6f / 4095.0f;
+
+		if (AppState.battery_voltage < 0.1f) {
+			AppState.battery_voltage = current_volt;
+		} else {
+			AppState.battery_voltage = (AppState.battery_voltage * 0.9f)
+					+ (current_volt * 0.1f);
+		}
+	}
+
+	HAL_ADC_Stop(&hadc1);
 }

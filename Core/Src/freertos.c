@@ -43,7 +43,7 @@ extern TIM_HandleTypeDef htim2;
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define DEBOUNCE_DELAY 200
+#define DEBOUNCE_DELAY 100
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -132,7 +132,7 @@ void MX_FREERTOS_Init(void) {
 	AlarmTaskHandle = osThreadCreate(osThread(AlarmTask), NULL);
 
 	/* definition and creation of CommTask */
-	osThreadDef(CommTask, StartCommTask, osPriorityLow, 0, 128);
+	osThreadDef(CommTask, StartCommTask, osPriorityLow, 0, 600);
 	CommTaskHandle = osThreadCreate(osThread(CommTask), NULL);
 
 	/* definition and creation of InputTask */
@@ -197,10 +197,16 @@ void StartMusicTask(void const *argument) {
 void StartAlarmTask(void const *argument) {
 	/* USER CODE BEGIN StartAlarmTask */
 	osDelay(100);
+	uint8_t batt_check_counter = 0;
 	/* Infinite loop */
 	for (;;) {
 		DS3231_GetTime((RTC_Time_t*) &AppState.now);
 		AppState_CheckAlarms();
+		batt_check_counter++;
+		if (batt_check_counter >= 5) {
+			AppState_UpdateBatteryVoltage();
+			batt_check_counter = 0;
+		}
 		osDelay(200);
 	}
 	/* USER CODE END StartAlarmTask */
@@ -223,6 +229,7 @@ void StartCommTask(void const *argument) {
 		if (bt_command_received) {
 			bt_command_received = 0;
 			CLI_ProcessCommand(bt_command_buffer);
+			memset(bt_command_buffer, 0, sizeof(bt_command_buffer));
 		}
 
 		if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_4) == GPIO_PIN_SET) {
@@ -230,6 +237,7 @@ void StartCommTask(void const *argument) {
 			if (!is_bt_connected) {
 				osDelay(100);
 				is_bt_connected = true;
+				memset(bt_command_buffer, 0, sizeof(bt_command_buffer));
 				CLI_ProcessCommand("i");
 			}
 		} else {
@@ -252,34 +260,53 @@ void StartInputTask(void const *argument) {
 	HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
 	__HAL_TIM_SET_COUNTER(&htim2, 32000);
 	last_counter_value = 32000;
+	static uint32_t btn_press_start = 0;
+	static bool long_press_handled = false;
+	const uint32_t LONG_PRESS_MS = 600;
 
 	for (;;) {
 		uint32_t current_counter = __HAL_TIM_GET_COUNTER(&htim2);
 		int8_t enc_diff = 0;
-
 		int16_t diff = (int16_t) (current_counter - last_counter_value);
 
 		if (abs(diff) >= 4) {
 			if (diff > 0)
-				enc_diff = 1;
-			else
 				enc_diff = -1;
+			else
+				enc_diff = 1;
 
 			last_counter_value = current_counter;
 		}
 
 		uint8_t btn_event = 0;
 
-		if (HAL_GetTick() - last_btn_press_time > DEBOUNCE_DELAY) {
-
-			if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_10) == GPIO_PIN_RESET) {
-				btn_event = 1;
-				last_btn_press_time = HAL_GetTick();
+		if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_10) == GPIO_PIN_RESET) {
+			if (btn_press_start == 0) {
+				btn_press_start = HAL_GetTick();
+				long_press_handled = false;
+			} else {
+				if (!long_press_handled
+						&& (HAL_GetTick() - btn_press_start > LONG_PRESS_MS)) {
+					btn_event = 5;
+					long_press_handled = true;
+				}
 			}
+		} else {
+			if (btn_press_start != 0) {
+				if (!long_press_handled
+						&& (HAL_GetTick() - btn_press_start > DEBOUNCE_DELAY)) {
+					btn_event = 1;
+				}
+				btn_press_start = 0;
+				long_press_handled = false;
+			}
+		}
 
-			else if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_13) == GPIO_PIN_SET) {
+		if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_13) == GPIO_PIN_SET) {
+			if (HAL_GetTick() - last_btn_press_time > DEBOUNCE_DELAY) {
 				btn_event = 2;
 				last_btn_press_time = HAL_GetTick();
+				AppState.is_alarm_ringing = false;
 			}
 		}
 

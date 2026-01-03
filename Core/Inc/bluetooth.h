@@ -11,6 +11,6 @@ extern volatile uint8_t bt_command_received;
 extern char bt_command_buffer[BT_RX_BUFFER_SIZE];
 
 void Bluetooth_Init(void);
-void Bluetooth_Send(char* message);
+void Bluetooth_Send(char *message);
 
 #endif

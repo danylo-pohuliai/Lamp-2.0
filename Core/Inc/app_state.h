@@ -36,5 +36,6 @@ void AppState_GetNextAlarmString(char *buffer);
 void AppState_CheckAlarms(void);
 void AppState_SetBrightness(uint8_t new_val);
 const char* AppState_GetDayOfWeekStr(uint8_t day_idx);
+void AppState_UpdateBatteryVoltage(void);
 
 #endif

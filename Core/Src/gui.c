@@ -7,20 +7,21 @@
 #include <string.h>
 
 Screen_t CurrentScreen = { 0 };
+static RTC_Time_t edit_time;
 
 static char str_buf[32];
 const char *menu_items[] = { "Time", "Alarms", "Set Time", "Set Date", "Light",
 		"Sleep", "Music", "Reset" };
 #define MENU_COUNT 8
 #define MENU_ROW_HEIGHT 10
-#define MENU_START_Y    12
+#define MENU_START_Y    11
 #define MENU_COL1_X     12
 #define MENU_COL2_X     76
 #define MENU_ITEMS_PER_COL 5
 #define ALARMS_VISIBLE_ROWS 4
 #define SLEEP_TIMEOUT_MS 60000
 static int8_t menu_cursor = 0, alarms_cursor = 0, edit_pos = 0, list_offset = 0;
-static uint32_t last_activity_time = 0;
+uint32_t last_activity_time = 0;
 
 static uint8_t Helper_GetCenterX(const char *text, SSD1306_Font_t font) {
 	uint8_t str_len = strlen(text);
@@ -68,11 +69,23 @@ void GUI_Init(void) {
 }
 
 void GUI_Update(void) {
-	if ((HAL_GetTick() - last_activity_time > SLEEP_TIMEOUT_MS)) {
-		if (CurrentScreen.draw != Screen_Sleep_Draw) {
+	if (CurrentScreen.draw != Screen_Sleep_Draw && !AppState.is_alarm_ringing) {
+		if ((HAL_GetTick() - last_activity_time > SLEEP_TIMEOUT_MS)) {
 			GUI_GoToScreen_Sleep();
+			return;
 		}
 	}
+
+	if (CurrentScreen.draw == Screen_Sleep_Draw) {
+		if (AppState.is_alarm_ringing) {
+			ssd1306_SetDisplayOn(1);
+			last_activity_time = HAL_GetTick();
+			GUI_GoToScreen_Main();
+		} else {
+			return;
+		}
+	}
+
 	ssd1306_Fill(Black);
 	if (CurrentScreen.draw != NULL) {
 		CurrentScreen.draw();
@@ -120,6 +133,7 @@ void GUI_GoToScreen_SetAlarm(void) {
 
 void GUI_GoToScreen_SetTime(void) {
 	edit_pos = 0;
+	edit_time = AppState.now;
 	CurrentScreen.draw = Screen_SetTime_Draw;
 	CurrentScreen.input = Screen_SetTime_Input;
 	CurrentScreen.name = "SetTime";
@@ -127,6 +141,7 @@ void GUI_GoToScreen_SetTime(void) {
 
 void GUI_GoToScreen_SetDate(void) {
 	edit_pos = 0;
+	edit_time = AppState.now;
 	CurrentScreen.draw = Screen_SetDate_Draw;
 	CurrentScreen.input = Screen_SetDate_Input;
 	CurrentScreen.name = "SetDate";
@@ -140,10 +155,12 @@ void GUI_GoToScreen_Light(void) {
 }
 
 void GUI_GoToScreen_Sleep(void) {
-	edit_pos = 0;
+	ssd1306_Fill(Black);
+	ssd1306_UpdateScreen();
+	ssd1306_SetDisplayOn(0);
+
 	CurrentScreen.draw = Screen_Sleep_Draw;
 	CurrentScreen.input = Screen_Sleep_Input;
-	CurrentScreen.name = "Sleep";
 }
 
 void Screen_Main_Draw(void) {
@@ -159,26 +176,32 @@ void Screen_Main_Draw(void) {
 	ssd1306_SetCursor(0, 0);
 	ssd1306_WriteString(str_buf, Font_6x8, White);
 
-	sprintf(str_buf, "Bright: %d%%", AppState.brightness);
+	sprintf(str_buf, "Brightness: %d%%", AppState.brightness);
 	ssd1306_SetCursor(0, 9);
+	ssd1306_WriteString(str_buf, Font_6x8, White);
+	int v_int = (int) AppState.battery_voltage;
+	int v_dec = (int) ((AppState.battery_voltage - v_int) * 100);
+
+	sprintf(str_buf, "Batt: %d.%02dV", v_int, v_dec);
+	ssd1306_SetCursor(0, 18);
 	ssd1306_WriteString(str_buf, Font_6x8, White);
 
 	sprintf(str_buf, "%02d:%02d:%02d", AppState.now.hours, AppState.now.minutes,
 			AppState.now.seconds);
 	uint8_t time_x = Helper_GetCenterX(str_buf, Font_11x18);
-	ssd1306_SetCursor(time_x, 22);
+	ssd1306_SetCursor(time_x, 27);
 	ssd1306_WriteString(str_buf, Font_11x18, White);
 
 	const char *dow_str = AppState_GetDayOfWeekStr(AppState.now.day_of_week);
 	sprintf(str_buf, "%s, %02d.%02d.%02d", dow_str, AppState.now.day,
 			AppState.now.month, AppState.now.year);
 
-	uint8_t date_x = Helper_GetCenterX(str_buf, Font_7x10);
-	ssd1306_SetCursor(date_x, 42);
+	uint8_t date_x = Helper_GetCenterX(str_buf, Font_6x8);
+	ssd1306_SetCursor(date_x, 44);
 	ssd1306_WriteString(str_buf, Font_6x8, White);
 
 	uint8_t alarm_x = Helper_GetCenterX(alarm_cache_buf, Font_6x8);
-	ssd1306_SetCursor(alarm_x, 56);
+	ssd1306_SetCursor(alarm_x, 55);
 	ssd1306_WriteString(alarm_cache_buf, Font_6x8, White);
 }
 
@@ -375,34 +398,34 @@ void Screen_SetAlarm_Draw(void) {
 	ssd1306_WriteString(str_buf, Font_6x8, White);
 
 	if (edit_pos == 0) {
-		ssd1306_SetCursor(0, 12);
-		ssd1306_WriteString(">", Font_7x10, White);
+		ssd1306_SetCursor(0, 9);
+		ssd1306_WriteString(">", Font_6x8, White);
 	}
 
-	ssd1306_SetCursor(10, 12);
-	ssd1306_WriteString("Alarm is ", Font_7x10, White);
+	ssd1306_SetCursor(10, 9);
+	ssd1306_WriteString("Alarm is ", Font_6x8, White);
 	if (alm->active) {
-		ssd1306_WriteString("ON", Font_7x10, White);
+		ssd1306_WriteString("ON", Font_6x8, White);
 	} else {
-		ssd1306_WriteString("OFF", Font_7x10, White);
+		ssd1306_WriteString("OFF", Font_6x8, White);
 	}
 
 	if (edit_pos == 1) {
-		ssd1306_SetCursor(0, 24);
-		ssd1306_WriteString(">", Font_7x10, White);
+		ssd1306_SetCursor(0, 18);
+		ssd1306_WriteString(">", Font_6x8, White);
 	}
-	ssd1306_SetCursor(10, 24);
-	ssd1306_WriteString("Delete Alarm", Font_7x10, White);
+	ssd1306_SetCursor(10, 18);
+	ssd1306_WriteString("Delete Alarm", Font_6x8, White);
 
 	const char *label = "Set Alarm Time:";
 	uint8_t label_x = Helper_GetCenterX(label, Font_6x8);
-	ssd1306_SetCursor(label_x, 36);
+	ssd1306_SetCursor(label_x, 30);
 	ssd1306_WriteString((char*) label, Font_6x8, White);
 
-	sprintf(str_buf, "%02d : %02d", (int) alm->hours, (int) alm->mins);
+	sprintf(str_buf, "%02d:%02d", (int) alm->hours, (int) alm->mins);
 
 	uint8_t time_x = Helper_GetCenterX(str_buf, Font_11x18);
-	uint8_t time_y = 46;
+	uint8_t time_y = 40;
 	ssd1306_SetCursor(time_x, time_y);
 	ssd1306_WriteString(str_buf, Font_11x18, White);
 
@@ -413,7 +436,7 @@ void Screen_SetAlarm_Draw(void) {
 	}
 
 	if (edit_pos == 3) {
-		uint8_t x_start = time_x + (11 * 5);
+		uint8_t x_start = time_x + 33;
 		uint8_t x_end = x_start + 22;
 		ssd1306_Line(x_start, time_y + 18, x_end, time_y + 18, White);
 	}
@@ -475,8 +498,16 @@ void Screen_SetTime_Draw(void) {
 	ssd1306_SetCursor(title_x, 0);
 	ssd1306_WriteString((char*) title, Font_6x8, White);
 
-	sprintf(str_buf, "%02d : %02d : %02d", AppState.now.hours,
-			AppState.now.minutes, AppState.now.seconds);
+	if (edit_pos == 0) {
+		ssd1306_SetCursor(0, 9);
+		ssd1306_WriteString(">", Font_6x8, White);
+	}
+
+	ssd1306_SetCursor(10, 9);
+	ssd1306_WriteString("Quit without saving", Font_6x8, White);
+
+	sprintf(str_buf, "%02d:%02d:%02d", edit_time.hours, edit_time.minutes,
+			edit_time.seconds);
 
 	uint8_t time_x = Helper_GetCenterX(str_buf, Font_11x18);
 	uint8_t time_y = 23;
@@ -486,52 +517,57 @@ void Screen_SetTime_Draw(void) {
 
 	uint8_t line_y = time_y + 20;
 
-	if (edit_pos == 0) {
+	if (edit_pos == 1) {
 		ssd1306_Line(time_x, line_y, time_x + 22, line_y, White);
-	} else if (edit_pos == 1) {
-		uint8_t min_start_x = time_x + 55;
-		ssd1306_Line(min_start_x, line_y, min_start_x + 22, line_y, White);
 	} else if (edit_pos == 2) {
-		uint8_t sec_start_x = time_x + 110;
+		uint8_t min_start_x = time_x + 33;
+		ssd1306_Line(min_start_x, line_y, min_start_x + 22, line_y, White);
+	} else if (edit_pos == 3) {
+		uint8_t sec_start_x = time_x + 66;
 		ssd1306_Line(sec_start_x, line_y, sec_start_x + 22, line_y, White);
 	}
 }
 
 void Screen_SetTime_Input(int8_t enc, uint8_t btn) {
 	if (enc != 0) {
-		if (edit_pos == 0) {
-			int8_t h = AppState.now.hours + enc;
+		if (edit_pos == 1) {
+			int8_t h = edit_time.hours + enc;
 			if (h > 23)
 				h = 0;
 			if (h < 0)
 				h = 23;
-			AppState.now.hours = h;
-		} else if (edit_pos == 1) {
-			int8_t m = AppState.now.minutes + enc;
+			edit_time.hours = h;
+		} else if (edit_pos == 2) {
+			int8_t m = edit_time.minutes + enc;
 			if (m > 59)
 				m = 0;
 			if (m < 0)
 				m = 59;
-			AppState.now.minutes = m;
-		} else if (edit_pos == 2) {
-			int8_t s = AppState.now.seconds + enc;
+			edit_time.minutes = m;
+		} else if (edit_pos == 3) {
+			int8_t s = edit_time.seconds + enc;
 			if (s > 59)
 				s = 0;
 			if (s < 0)
 				s = 59;
-			AppState.now.seconds = s;
+			edit_time.seconds = s;
 		}
 	}
 
 	if (btn == 1) {
 		edit_pos++;
-		if (edit_pos > 2)
+		if (edit_pos > 3)
 			edit_pos = 0;
 	}
 
 	if (btn == 2) {
-		DS3231_SetTime((RTC_Time_t*) &AppState.now);
-		GUI_GoToScreen_Menu();
+		if (edit_pos == 0) {
+			GUI_GoToScreen_Menu();
+		} else {
+			DS3231_SetTime(&edit_time);
+			AppState.now = edit_time;
+			GUI_GoToScreen_Menu();
+		}
 	}
 }
 
@@ -541,8 +577,15 @@ void Screen_SetDate_Draw(void) {
 	ssd1306_SetCursor(title_x, 0);
 	ssd1306_WriteString((char*) title, Font_6x8, White);
 
-	sprintf(str_buf, "%02d . %02d . %02d", AppState.now.day, AppState.now.month,
-			AppState.now.year);
+	if (edit_pos == 0) {
+		ssd1306_SetCursor(0, 9);
+		ssd1306_WriteString(">", Font_6x8, White);
+	}
+	ssd1306_SetCursor(10, 9);
+	ssd1306_WriteString("Quit without saving", Font_6x8, White);
+
+	sprintf(str_buf, "%02d.%02d.%02d", edit_time.day, edit_time.month,
+			edit_time.year);
 
 	uint8_t date_x = Helper_GetCenterX(str_buf, Font_11x18);
 	uint8_t date_y = 23;
@@ -552,13 +595,13 @@ void Screen_SetDate_Draw(void) {
 
 	uint8_t line_y = date_y + 20;
 
-	if (edit_pos == 0) {
+	if (edit_pos == 1) {
 		ssd1306_Line(date_x, line_y, date_x + 22, line_y, White);
-	} else if (edit_pos == 1) {
-		uint8_t m_start = date_x + 55;
-		ssd1306_Line(m_start, line_y, m_start + 22, line_y, White);
 	} else if (edit_pos == 2) {
-		uint8_t y_start = date_x + 110;
+		uint8_t m_start = date_x + 33;
+		ssd1306_Line(m_start, line_y, m_start + 22, line_y, White);
+	} else if (edit_pos == 3) {
+		uint8_t y_start = date_x + 66;
 		ssd1306_Line(y_start, line_y, y_start + 22, line_y, White);
 	}
 }
@@ -566,33 +609,33 @@ void Screen_SetDate_Draw(void) {
 void Screen_SetDate_Input(int8_t enc, uint8_t btn) {
 	if (enc != 0) {
 		switch (edit_pos) {
-		case 0: {
-			int8_t d = AppState.now.day + enc;
+		case 1: {
+			int8_t d = edit_time.day + enc;
 			if (d > 31)
 				d = 1;
 			if (d < 1)
 				d = 31;
-			AppState.now.day = d;
-		}
-			break;
-
-		case 1: {
-			int8_t m = AppState.now.month + enc;
-			if (m > 12)
-				m = 1;
-			if (m < 1)
-				m = 12;
-			AppState.now.month = m;
+			edit_time.day = d;
 		}
 			break;
 
 		case 2: {
-			int8_t y = AppState.now.year + enc;
+			int8_t m = edit_time.month + enc;
+			if (m > 12)
+				m = 1;
+			if (m < 1)
+				m = 12;
+			edit_time.month = m;
+		}
+			break;
+
+		case 3: {
+			int8_t y = edit_time.year + enc;
 			if (y > 99)
 				y = 24;
 			if (y < 24)
 				y = 99;
-			AppState.now.year = y;
+			edit_time.year = y;
 		}
 			break;
 		}
@@ -600,13 +643,18 @@ void Screen_SetDate_Input(int8_t enc, uint8_t btn) {
 
 	if (btn == 1) {
 		edit_pos++;
-		if (edit_pos > 2)
+		if (edit_pos > 3)
 			edit_pos = 0;
 	}
 
 	if (btn == 2) {
-		DS3231_SetTime((RTC_Time_t*) &AppState.now);
-		GUI_GoToScreen_Menu();
+		if (edit_pos == 0) {
+			GUI_GoToScreen_Menu();
+		} else {
+			DS3231_SetTime(&edit_time);
+			AppState.now = edit_time;
+			GUI_GoToScreen_Menu();
+		}
 	}
 }
 
@@ -617,27 +665,27 @@ void Screen_Light_Draw(void) {
 	ssd1306_WriteString((char*) title, Font_6x8, White);
 
 	if (edit_pos == 0) {
-		ssd1306_SetCursor(0, 15);
-		ssd1306_WriteString(">", Font_7x10, White);
+		ssd1306_SetCursor(0, 9);
+		ssd1306_WriteString(">", Font_6x8, White);
 	}
-	ssd1306_SetCursor(12, 15);
-	ssd1306_WriteString("Turn ON", Font_7x10, White);
+	ssd1306_SetCursor(10, 9);
+	ssd1306_WriteString("Turn ON", Font_6x8, White);
 
 	if (edit_pos == 1) {
-		ssd1306_SetCursor(0, 28);
-		ssd1306_WriteString(">", Font_7x10, White);
+		ssd1306_SetCursor(0, 18);
+		ssd1306_WriteString(">", Font_6x8, White);
 	}
-	ssd1306_SetCursor(12, 28);
-	ssd1306_WriteString("Turn OFF", Font_7x10, White);
+	ssd1306_SetCursor(10, 18);
+	ssd1306_WriteString("Turn OFF", Font_6x8, White);
 
-	const char *br_label = "Brightness:";
+	const char *br_label = "Bright-s:";
 	uint8_t br_x = Helper_GetCenterX(br_label, Font_6x8);
-	ssd1306_SetCursor(br_x, 42);
+	ssd1306_SetCursor(br_x, 29);
 	ssd1306_WriteString((char*) br_label, Font_6x8, White);
 
 	sprintf(str_buf, "%d%%", AppState.brightness);
 	uint8_t val_x = Helper_GetCenterX(str_buf, Font_11x18);
-	uint8_t val_y = 52;
+	uint8_t val_y = 38;
 
 	if (edit_pos == 2) {
 		ssd1306_SetCursor(val_x - 15, val_y);
@@ -703,7 +751,7 @@ void Screen_Sleep_Draw(void) {
 
 void Screen_Sleep_Input(int8_t enc, uint8_t btn) {
 	if (enc != 0 || btn != 0) {
-		AppState.is_alarm_ringing = false;
+		ssd1306_SetDisplayOn(1);
 		GUI_GoToScreen_Main();
 	}
 }

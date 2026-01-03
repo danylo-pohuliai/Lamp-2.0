@@ -1,6 +1,8 @@
 #include "command_parser.h"
 #include "bluetooth.h"
 #include "app_state.h"
+#include "gui.h"
+#include "ssd1306.h"
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
@@ -207,6 +209,19 @@ static void Cmd_Info(void) {
 				AppState.alarms[i].hours, AppState.alarms[i].mins,
 				AppState.alarms[i].active ? "ON" : "OFF");
 	}
+	int bat_pct = 0;
+	if (AppState.battery_voltage > 3.0f) {
+		bat_pct = (int) ((AppState.battery_voltage - 3.0f) * 100.0f / 1.2f);
+	}
+	if (bat_pct > 100)
+		bat_pct = 100;
+	if (bat_pct < 0)
+		bat_pct = 0;
+
+	len += sprintf(tx_buffer + len, "Battery: %d.%02dV (%d%%)\r\n",
+			(int) AppState.battery_voltage,
+			(int) ((AppState.battery_voltage - (int) AppState.battery_voltage)
+					* 100), bat_pct);
 	len += sprintf(tx_buffer + len, "--- COMMANDS ---\r\n");
 	len += sprintf(tx_buffer + len, "1 / 2      : Light ON / OFF\r\n");
 	len += sprintf(tx_buffer + len, "b <0-100>  : Brightness (e.g. b 50)\r\n");
@@ -230,11 +245,19 @@ static void Cmd_Info(void) {
 }
 
 void CLI_ProcessCommand(char *input) {
+	last_activity_time = HAL_GetTick();
+	ssd1306_SetDisplayOn(1);
 	while (*input == ' ')
 		input++;
 	if (*input == 0)
 		return;
-
+	size_t len = strlen(input);
+	while (len > 0
+			&& (input[len - 1] == '\r' || input[len - 1] == '\n'
+					|| input[len - 1] == ' ')) {
+		input[len - 1] = '\0';
+		len--;
+	}
 	printf("\r\n[DEBUG] Input: '%s'\r\n", input);
 	printf("[DEBUG] Hex: %02X %02X %02X ...\r\n", (uint8_t) input[0],
 			(uint8_t) input[1], (uint8_t) input[2]);
