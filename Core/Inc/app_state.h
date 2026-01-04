@@ -23,6 +23,7 @@ typedef struct {
 	Alarm_t alarms[MAX_ALARMS];
 	uint8_t alarms_count;
 	bool is_alarm_ringing;
+	bool is_preview_mode;
 } SystemState_t;
 
 extern volatile SystemState_t AppState;

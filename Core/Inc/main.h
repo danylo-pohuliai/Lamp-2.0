@@ -57,8 +57,6 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define SIMISTOR_Pin GPIO_PIN_13
-#define SIMISTOR_GPIO_Port GPIOC
 #define S1_Pin GPIO_PIN_0
 #define S1_GPIO_Port GPIOA
 #define S2_Pin GPIO_PIN_1

@@ -2,6 +2,7 @@
 #include "bluetooth.h"
 #include "app_state.h"
 #include "gui.h"
+#include "music.h"
 #include "ssd1306.h"
 #include <stdio.h>
 #include <string.h>
@@ -192,6 +193,26 @@ static void Cmd_SetDate(char *args) {
 	}
 }
 
+static void Cmd_PlayMusic(char *args) {
+	int vol;
+	if (sscanf(args, "%d", &vol) == 1) {
+		if (vol > 100)
+			vol = 100;
+		if (vol < 0)
+			vol = 0;
+
+		Music_SetVolume((uint8_t) vol);
+
+		char buf[40];
+		sprintf(buf, "OK: Playing Music at %d%%\r\n", vol);
+		Reply(buf);
+	} else {
+		Reply("OK: Playing Music (Current Volume)\r\n");
+	}
+
+	AppState.is_alarm_ringing = true;
+}
+
 static void Cmd_Info(void) {
 	int len = 0;
 	const char *dow_str = AppState_GetDayOfWeekStr(AppState.now.day_of_week);
@@ -223,20 +244,17 @@ static void Cmd_Info(void) {
 			(int) ((AppState.battery_voltage - (int) AppState.battery_voltage)
 					* 100), bat_pct);
 	len += sprintf(tx_buffer + len, "--- COMMANDS ---\r\n");
-	len += sprintf(tx_buffer + len, "1 / 2      : Light ON / OFF\r\n");
-	len += sprintf(tx_buffer + len, "b <0-100>  : Brightness (e.g. b 50)\r\n");
-	len += sprintf(tx_buffer + len, "t <HHMMSS> : Set Time (e.g. t153000)\r\n");
-	len += sprintf(tx_buffer + len,
-			"t <H:M:S>  : Set Time (e.g. t 9:30:0)\r\n");
-	len += sprintf(tx_buffer + len,
-			"d <D.M.Y>  : Set Date (e.g. d 1.1.26)\r\n");
-	len += sprintf(tx_buffer + len, "a          : List Alarms\r\n");
+	len += sprintf(tx_buffer + len, "b<0-100>: Brightness (e.g. b 50)\r\n");
+	len += sprintf(tx_buffer + len, "t<HHMMSS>: Set Time (e.g. t153000)\r\n");
+	len += sprintf(tx_buffer + len, "t<H:M:S>: Set Time (e.g. t 9:30:0)\r\n");
+	len += sprintf(tx_buffer + len, "d<D.M.Y>: Set Date (e.g. d 1.1.26)\r\n");
+	len += sprintf(tx_buffer + len, "a: List Alarms\r\n");
 	len += sprintf(tx_buffer + len, "a<ID><HHMM>: Set/Edit (e.g. a00730)\r\n");
+	len += sprintf(tx_buffer + len, "o<ID>: Toggle ON/OFF (e.g. o 0)\r\n");
+	len += sprintf(tx_buffer + len, "del<ID>: Delete Alarm (e.g. del 0)\r\n");
 	len += sprintf(tx_buffer + len,
-			"o <ID>     : Toggle ON/OFF (e.g. o 0)\r\n");
-	len += sprintf(tx_buffer + len,
-			"del <ID>   : Delete Alarm (e.g. del 0)\r\n");
-	len += sprintf(tx_buffer + len, "r          : System Reset\r\n");
+			"m<0-100>  : Play Music / Vol (e.g. m 50)\r\n");
+	len += sprintf(tx_buffer + len, "r: System Reset\r\n");
 
 	if (len > 0) {
 		Bluetooth_Send(tx_buffer);
@@ -246,7 +264,10 @@ static void Cmd_Info(void) {
 
 void CLI_ProcessCommand(char *input) {
 	last_activity_time = HAL_GetTick();
-	ssd1306_SetDisplayOn(1);
+	if (!ssd1306_GetDisplayOn()) {
+		ssd1306_SetDisplayOn(1);
+		GUI_GoToScreen_Main();
+	}
 	while (*input == ' ')
 		input++;
 	if (*input == 0)
@@ -274,32 +295,27 @@ void CLI_ProcessCommand(char *input) {
 	printf("[DEBUG] Norm Cmd: '%c', Args: '%s'\r\n", cmd_char, args);
 
 	switch (cmd_char) {
-	case '1':
-		AppState.is_light_on = true;
-		AppState.brightness = 100;
-		Reply("OK: Light ON 100%\r\n");
-		break;
-
-	case '2':
-		AppState.is_light_on = false;
-		AppState.brightness = 0;
-		Reply("OK: Light OFF\r\n");
+	case 'a':
+		Cmd_SetAlarm(args);
 		break;
 
 	case 'b':
 		Cmd_SetBrightness(args);
 		break;
 
-	case 'a':
-		Cmd_SetAlarm(args);
+	case 'd':
+		Cmd_SetDate(args);
+		break;
+	case 'm':
+		Cmd_PlayMusic(args);
 		break;
 
 	case 't':
 		Cmd_SetTime(args);
 		break;
 
-	case 'd':
-		Cmd_SetDate(args);
+	case 'i':
+		Cmd_Info();
 		break;
 
 	case 'o': {
@@ -327,10 +343,6 @@ void CLI_ProcessCommand(char *input) {
 			}
 		}
 	}
-		break;
-
-	case 'i':
-		Cmd_Info();
 		break;
 
 	case 'r':

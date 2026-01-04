@@ -178,7 +178,8 @@ void StartMusicTask(void const *argument) {
 	/* Infinite loop */
 	for (;;) {
 		if (AppState.is_alarm_ringing) {
-			Music_PlayAlarmLoop();
+			bool enable_fade = !AppState.is_preview_mode;
+			Music_PlayAlarmLoop(enable_fade);
 		} else {
 			Music_Stop();
 			osDelay(200);
@@ -307,6 +308,7 @@ void StartInputTask(void const *argument) {
 				btn_event = 2;
 				last_btn_press_time = HAL_GetTick();
 				AppState.is_alarm_ringing = false;
+				AppState.is_preview_mode = false;
 			}
 		}
 

@@ -3,6 +3,8 @@
 #include "ssd1306_fonts.h"
 #include "app_state.h"
 #include "flash_store.h"
+#include "music.h"
+#include "melodies.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -19,8 +21,10 @@ const char *menu_items[] = { "Time", "Alarms", "Set Time", "Set Date", "Light",
 #define MENU_COL2_X     76
 #define MENU_ITEMS_PER_COL 5
 #define ALARMS_VISIBLE_ROWS 4
+#define MUSIC_VISIBLE_ROWS 4
 #define SLEEP_TIMEOUT_MS 60000
-static int8_t menu_cursor = 0, alarms_cursor = 0, edit_pos = 0, list_offset = 0;
+static int8_t menu_cursor = 0, alarms_cursor = 0, edit_pos = 0,
+		music_cursor = 0, music_list_offset = 0, list_offset = 0;
 uint32_t last_activity_time = 0;
 
 static uint8_t Helper_GetCenterX(const char *text, SSD1306_Font_t font) {
@@ -154,6 +158,14 @@ void GUI_GoToScreen_Light(void) {
 	CurrentScreen.name = "Light";
 }
 
+void GUI_GoToScreen_Music(void) {
+	music_cursor = 0;
+	music_list_offset = 0;
+	CurrentScreen.draw = Screen_Music_Draw;
+	CurrentScreen.input = Screen_Music_Input;
+	CurrentScreen.name = "Music";
+}
+
 void GUI_GoToScreen_Sleep(void) {
 	ssd1306_Fill(Black);
 	ssd1306_UpdateScreen();
@@ -281,7 +293,7 @@ void Screen_Menu_Input(int8_t enc, uint8_t btn) {
 			GUI_GoToScreen_Sleep();
 			break;
 		case 6:
-			AppState.is_alarm_ringing = true;
+			GUI_GoToScreen_Music();
 			break;
 		case 7:
 			HAL_NVIC_SystemReset();
@@ -742,6 +754,103 @@ void Screen_Light_Input(int8_t enc, uint8_t btn) {
 
 	if (btn == 2) {
 		GUI_GoToScreen_Menu();
+	}
+}
+
+void Screen_Music_Draw(void) {
+	const char *title = "--- MELODY LIST ---";
+	uint8_t title_x = Helper_GetCenterX(title, Font_6x8);
+	ssd1306_SetCursor(title_x, 0);
+	ssd1306_WriteString((char*) title, Font_6x8, White);
+
+	int total_items = Music_GetMelodyCount() + 1;
+
+	for (int i = 0; i < MUSIC_VISIBLE_ROWS; i++) {
+		int item_index = music_list_offset + i;
+
+		if (item_index >= total_items)
+			break;
+
+		uint8_t y_pos = 12 + (i * 12);
+
+		if (item_index == music_cursor) {
+			ssd1306_SetCursor(0, y_pos);
+			ssd1306_WriteString(">", Font_6x8, White);
+		}
+
+		ssd1306_SetCursor(10, y_pos);
+
+		if (item_index < MELODIES_COUNT) {
+			const char *name = Music_GetMelodyName(item_index);
+
+			if (AppState.is_alarm_ringing) {
+
+			}
+			ssd1306_WriteString((char*) name, Font_6x8, White);
+		} else {
+			ssd1306_WriteString("Back", Font_6x8, White);
+		}
+	}
+
+	if (music_list_offset > 0) {
+		ssd1306_SetCursor(120, 12);
+		ssd1306_WriteString("^", Font_6x8, White);
+	}
+
+	if (music_list_offset + MUSIC_VISIBLE_ROWS < total_items) {
+		ssd1306_SetCursor(120, 48);
+		ssd1306_WriteString("v", Font_6x8, White);
+	}
+}
+
+void Screen_Music_Input(int8_t enc, uint8_t btn) {
+	int total_items = Music_GetMelodyCount() + 1;
+
+	if (enc != 0) {
+		music_cursor += enc;
+
+		if (music_cursor < 0)
+			music_cursor = total_items - 1;
+		if (music_cursor >= total_items)
+			music_cursor = 0;
+
+		if (music_cursor >= music_list_offset + MUSIC_VISIBLE_ROWS) {
+			music_list_offset = music_cursor - MUSIC_VISIBLE_ROWS + 1;
+		}
+		if (music_cursor < music_list_offset) {
+			music_list_offset = music_cursor;
+		}
+
+		if (music_cursor == 0 && music_list_offset > 0) {
+			music_list_offset = 0;
+		}
+
+		if (music_cursor == total_items - 1) {
+			music_list_offset = total_items - MUSIC_VISIBLE_ROWS;
+			if (music_list_offset < 0)
+				music_list_offset = 0;
+		}
+	}
+
+	if (btn == 1) {
+
+		if (music_cursor < MELODIES_COUNT) {
+			Music_SelectMelody(music_cursor);
+			AppState.is_alarm_ringing = true;
+			AppState.is_preview_mode = true;
+		}
+
+		else {
+			GUI_GoToScreen_Menu();
+		}
+	}
+
+	if (btn == 2) {
+		if (AppState.is_alarm_ringing) {
+			AppState.is_alarm_ringing = false;
+		} else {
+			GUI_GoToScreen_Menu();
+		}
 	}
 }
 

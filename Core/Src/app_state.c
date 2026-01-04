@@ -9,7 +9,7 @@ volatile SystemState_t AppState = { .now = { .hours = 12, .minutes = 0,
 		.seconds = 0, .day = 1, .month = 1, .year = 26, .day_of_week = 4 },
 		.battery_voltage = 0.0f, .brightness = 0, .is_light_on = false,
 
-		.alarms_count = 0, .is_alarm_ringing = false };
+		.alarms_count = 0, .is_alarm_ringing = false, .is_preview_mode = 0 };
 
 static const char *week_days[] = { "Err", "Mon", "Tue", "Wed", "Thu", "Fri",
 		"Sat", "Sun" };
@@ -115,6 +115,7 @@ void AppState_CheckAlarms(void) {
 				&& AppState.alarms[i].mins == AppState.now.minutes) {
 
 			AppState.is_alarm_ringing = true;
+			AppState.is_preview_mode = false;
 			return;
 		}
 	}
