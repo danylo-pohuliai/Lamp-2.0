@@ -23,5 +23,7 @@ uint8_t Music_GetVolume(void);
 void Music_SelectMelody(uint8_t index);
 int Music_GetMelodyCount(void);
 const char* Music_GetMelodyName(uint8_t index);
+uint8_t Music_GetCurrentMelodyIndex(void);
+void Music_SelectRandomFromPlaylist(void);
 
 #endif

@@ -221,11 +221,15 @@ void StartAlarmTask(void const *argument) {
  */
 /* USER CODE END Header_StartCommTask */
 void StartCommTask(void const *argument) {
-	/* USER CODE BEGIN StartCommTask */
 	Bluetooth_Init();
-	bool is_bt_connected = false;
 
-	/* Infinite loop */
+	bool is_bt_connected = false;
+	uint32_t last_pulse_width = 200;
+	uint32_t safety_margin = 100;
+
+	uint32_t high_start_time = 0;
+	bool synced = false;
+
 	for (;;) {
 		if (bt_command_received) {
 			bt_command_received = 0;
@@ -233,20 +237,49 @@ void StartCommTask(void const *argument) {
 			memset(bt_command_buffer, 0, sizeof(bt_command_buffer));
 		}
 
-		if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_4) == GPIO_PIN_SET) {
+		bool pin_high = (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_4) == GPIO_PIN_SET);
+		uint32_t now = HAL_GetTick();
 
-			if (!is_bt_connected) {
-				osDelay(100);
-				is_bt_connected = true;
-				memset(bt_command_buffer, 0, sizeof(bt_command_buffer));
-				CLI_ProcessCommand("i");
+		if (pin_high) {
+			if (high_start_time == 0) {
+				high_start_time = now;
+			} else {
+				uint32_t duration = now - high_start_time;
+				uint32_t trigger_limit = last_pulse_width + safety_margin;
+
+				if (duration > trigger_limit) {
+					if (!is_bt_connected) {
+						if (synced || duration > 1000) {
+							is_bt_connected = true;
+							osDelay(80);
+							char auto_cmd[] = "hello";
+							CLI_ProcessCommand(auto_cmd);
+						}
+					}
+				}
 			}
 		} else {
-			is_bt_connected = false;
+			if (!synced)
+				synced = true;
+
+			if (high_start_time != 0) {
+				uint32_t measured_len = now - high_start_time;
+				high_start_time = 0;
+
+				if (is_bt_connected) {
+					is_bt_connected = false;
+					safety_margin = 100;
+				} else {
+					if (measured_len > 100 && measured_len < 500) {
+						last_pulse_width = measured_len;
+						safety_margin = 35;
+					}
+				}
+			}
 		}
-		osDelay(50);
+
+		osDelay(15);
 	}
-	/* USER CODE END StartCommTask */
 }
 
 /* USER CODE BEGIN Header_StartInputTask */

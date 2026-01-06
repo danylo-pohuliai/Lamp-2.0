@@ -5,7 +5,8 @@
 #include <stdbool.h>
 #include "ds3231.h"
 
-#define MAX_ALARMS 9
+#define MAX_ALARMS 8
+#define MAX_MELODIES_IN_MASK 32
 
 typedef struct {
 	uint8_t hours;
@@ -15,15 +16,15 @@ typedef struct {
 
 typedef struct {
 	RTC_Time_t now;
-
+	Alarm_t alarms[MAX_ALARMS];
 	float battery_voltage;
 	uint8_t brightness;
-	bool is_light_on;
-
-	Alarm_t alarms[MAX_ALARMS];
 	uint8_t alarms_count;
+	uint8_t volume;
+	bool is_light_on;
 	bool is_alarm_ringing;
 	bool is_preview_mode;
+	bool melody_playlist[MAX_MELODIES_IN_MASK];
 } SystemState_t;
 
 extern volatile SystemState_t AppState;

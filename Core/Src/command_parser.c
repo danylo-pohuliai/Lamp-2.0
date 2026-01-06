@@ -193,7 +193,63 @@ static void Cmd_SetDate(char *args) {
 	}
 }
 
-static void Cmd_PlayMusic(char *args) {
+static void Cmd_MusicControl(char *args) {
+	if (*args == '\0') {
+		int len = 0;
+		int count = Music_GetMelodyCount();
+
+		len += sprintf(tx_buffer + len, "--- MELODY LIST ---\r\n");
+		len += sprintf(tx_buffer + len, "ID | PlayList | Name\r\n");
+
+		for (int i = 0; i < count; i++) {
+			const char *name = Music_GetMelodyName(i);
+			bool in_playlist = AppState.melody_playlist[i];
+
+			if (len > 750) {
+				Bluetooth_Send(tx_buffer);
+				len = 0;
+			}
+
+			len += sprintf(tx_buffer + len, "[%d]   %s    %s\r\n", i,
+					in_playlist ? "[+]" : "[ ]", name);
+		}
+
+		len += sprintf(tx_buffer + len, "-------------------\r\n");
+		Bluetooth_Send(tx_buffer);
+		return;
+	}
+
+	int id;
+	if (sscanf(args, "%d", &id) == 1) {
+		int total = Music_GetMelodyCount();
+
+		if (id >= 0 && id < total) {
+			uint8_t current_id = Music_GetCurrentMelodyIndex();
+			if (AppState.is_alarm_ringing && current_id == id) {
+				AppState.is_alarm_ringing = false;
+				Music_Stop();
+
+				char buf[64];
+				sprintf(buf, "OK: Stopped [%d] %s\r\n", id,
+						Music_GetMelodyName(id));
+				Reply(buf);
+			} else {
+				Music_SelectMelody((uint8_t) id);
+				AppState.is_alarm_ringing = true;
+				char buf[64];
+				sprintf(buf, "OK: Playing [%d] %s\r\n", id,
+						Music_GetMelodyName(id));
+				Reply(buf);
+			}
+		} else {
+			Reply("ERR: Invalid Melody ID\r\n");
+		}
+	} else {
+		Reply("ERR: Try 'm' or 'm<ID>'\r\n");
+	}
+}
+
+static void Cmd_SetVolume(char *args) {
 	int vol;
 	if (sscanf(args, "%d", &vol) == 1) {
 		if (vol > 100)
@@ -201,16 +257,15 @@ static void Cmd_PlayMusic(char *args) {
 		if (vol < 0)
 			vol = 0;
 
-		Music_SetVolume((uint8_t) vol);
+		AppState.volume = (uint8_t) vol;
+		Music_SetVolume(AppState.volume);
 
 		char buf[40];
-		sprintf(buf, "OK: Playing Music at %d%%\r\n", vol);
+		sprintf(buf, "OK: Volume set to %d%%\r\n", AppState.volume);
 		Reply(buf);
 	} else {
-		Reply("OK: Playing Music (Current Volume)\r\n");
+		Reply("ERR: Invalid Volume. Try 'v50'\r\n");
 	}
-
-	AppState.is_alarm_ringing = true;
 }
 
 static void Cmd_Info(void) {
@@ -245,15 +300,16 @@ static void Cmd_Info(void) {
 					* 100), bat_pct);
 	len += sprintf(tx_buffer + len, "--- COMMANDS ---\r\n");
 	len += sprintf(tx_buffer + len, "b<0-100>: Brightness (e.g. b 50)\r\n");
+	len += sprintf(tx_buffer + len, "v<0-100>: Volume (e.g. v 30)\r\n");
 	len += sprintf(tx_buffer + len, "t<HHMMSS>: Set Time (e.g. t153000)\r\n");
-	len += sprintf(tx_buffer + len, "t<H:M:S>: Set Time (e.g. t 9:30:0)\r\n");
+	len += sprintf(tx_buffer + len, "t<H:M:S>: Set Time (e.g. t9:30:0)\r\n");
 	len += sprintf(tx_buffer + len, "d<D.M.Y>: Set Date (e.g. d 1.1.26)\r\n");
 	len += sprintf(tx_buffer + len, "a: List Alarms\r\n");
 	len += sprintf(tx_buffer + len, "a<ID><HHMM>: Set/Edit (e.g. a00730)\r\n");
 	len += sprintf(tx_buffer + len, "o<ID>: Toggle ON/OFF (e.g. o 0)\r\n");
 	len += sprintf(tx_buffer + len, "del<ID>: Delete Alarm (e.g. del 0)\r\n");
-	len += sprintf(tx_buffer + len,
-			"m<0-100>  : Play Music / Vol (e.g. m 50)\r\n");
+	len += sprintf(tx_buffer + len, "m: List Melodies & Playlist\r\n");
+	len += sprintf(tx_buffer + len, "m<ID>: Play/Off Melody (e.g. m1)\r\n");
 	len += sprintf(tx_buffer + len, "r: System Reset\r\n");
 
 	if (len > 0) {
@@ -288,6 +344,12 @@ void CLI_ProcessCommand(char *input) {
 		return;
 	}
 
+	if (strncmp(input, "hello", 5) == 0) {
+		Reply("Hello Danylo!!)))\r\n");
+		Cmd_SetAlarm("");
+		return;
+	}
+
 	int cmd_len = 0;
 	char cmd_char = Normalize_Command(input, &cmd_len);
 	char *args = input + cmd_len;
@@ -307,7 +369,7 @@ void CLI_ProcessCommand(char *input) {
 		Cmd_SetDate(args);
 		break;
 	case 'm':
-		Cmd_PlayMusic(args);
+		Cmd_MusicControl(args);
 		break;
 
 	case 't':
@@ -349,6 +411,10 @@ void CLI_ProcessCommand(char *input) {
 		Reply("System Reset...\r\n");
 		HAL_Delay(100);
 		HAL_NVIC_SystemReset();
+		break;
+
+	case 'v':
+		Cmd_SetVolume(args);
 		break;
 
 	default:

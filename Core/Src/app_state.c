@@ -1,15 +1,16 @@
 #include "app_state.h"
 #include "flash_store.h"
 #include "dimmer.h"
+#include "music.h"
 #include "adc.h"
 #include <stdio.h>
 #include <string.h>
 
 volatile SystemState_t AppState = { .now = { .hours = 12, .minutes = 0,
 		.seconds = 0, .day = 1, .month = 1, .year = 26, .day_of_week = 4 },
-		.battery_voltage = 0.0f, .brightness = 0, .is_light_on = false,
-
-		.alarms_count = 0, .is_alarm_ringing = false, .is_preview_mode = 0 };
+		.battery_voltage = 0.0f, .brightness = 0, .volume = 100, .is_light_on =
+				false, .alarms_count = 0, .is_alarm_ringing = false,
+		.is_preview_mode = 0 };
 
 static const char *week_days[] = { "Err", "Mon", "Tue", "Wed", "Thu", "Fri",
 		"Sat", "Sun" };
@@ -113,7 +114,7 @@ void AppState_CheckAlarms(void) {
 		if (AppState.alarms[i].active
 				&& AppState.alarms[i].hours == AppState.now.hours
 				&& AppState.alarms[i].mins == AppState.now.minutes) {
-
+			Music_SelectRandomFromPlaylist();
 			AppState.is_alarm_ringing = true;
 			AppState.is_preview_mode = false;
 			return;

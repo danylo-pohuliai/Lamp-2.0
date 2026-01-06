@@ -5,12 +5,11 @@
 #include "app_state.h"
 
 typedef struct {
-    uint8_t magic_num;     // 0xA5
-    uint8_t alarms_count;
-    uint8_t brightness;
-    uint8_t is_light_on;
-    Alarm_t alarms[MAX_ALARMS];
-    uint8_t padding;
+	uint8_t magic_num;
+	uint8_t alarms_count;
+	uint16_t padding;
+	uint32_t melody_mask;
+	Alarm_t alarms[MAX_ALARMS];
 } Settings_t;
 
 void Flash_SaveSettings(void);

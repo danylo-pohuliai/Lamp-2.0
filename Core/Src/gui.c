@@ -24,7 +24,10 @@ const char *menu_items[] = { "Time", "Alarms", "Set Time", "Set Date", "Light",
 #define MUSIC_VISIBLE_ROWS 4
 #define SLEEP_TIMEOUT_MS 60000
 static int8_t menu_cursor = 0, alarms_cursor = 0, edit_pos = 0,
-		music_cursor = 0, music_list_offset = 0, list_offset = 0;
+		music_cursor = 0, music_list_offset = 0, list_offset = 0,
+		melody_edit_index = 0, playlist_cursor = 0, playlist_offset = 0;
+
+static bool came_from_playlist = false;
 uint32_t last_activity_time = 0;
 
 static uint8_t Helper_GetCenterX(const char *text, SSD1306_Font_t font) {
@@ -35,34 +38,29 @@ static uint8_t Helper_GetCenterX(const char *text, SSD1306_Font_t font) {
 	return (128 - pixel_width) / 2;
 }
 
-void GUI_GoToScreen_Main(void);
-void GUI_GoToScreen_Menu(void);
-void GUI_GoToScreen_Alarms(void);
-void GUI_GoToScreen_SetAlarm(void);
-void GUI_GoToScreen_SetTime(void);
-void GUI_GoToScreen_SetDate(void);
-void GUI_GoToScreen_Light(void);
-void GUI_GoToScreen_Music(void);
-void GUI_GoToScreen_Sleep(void);
+int GetRealID_From_PlaylistPos(int playlist_pos) {
+	int counter = 0;
+	int total = Music_GetMelodyCount();
 
-void Screen_Main_Draw(void);
-void Screen_Main_Input(int8_t enc, uint8_t btn);
-void Screen_Menu_Draw(void);
-void Screen_Menu_Input(int8_t enc, uint8_t btn);
-void Screen_Alarms_Draw(void);
-void Screen_Alarms_Input(int8_t enc, uint8_t btn);
-void Screen_SetAlarm_Draw(void);
-void Screen_SetAlarm_Input(int8_t enc, uint8_t btn);
-void Screen_SetTime_Draw(void);
-void Screen_SetTime_Input(int8_t enc, uint8_t btn);
-void Screen_SetDate_Draw(void);
-void Screen_SetDate_Input(int8_t enc, uint8_t btn);
-void Screen_Light_Draw(void);
-void Screen_Light_Input(int8_t enc, uint8_t btn);
-void Screen_Music_Draw(void);
-void Screen_Music_Input(int8_t enc, uint8_t btn);
-void Screen_Sleep_Draw(void);
-void Screen_Sleep_Input(int8_t enc, uint8_t btn);
+	for (int i = 0; i < total; i++) {
+		if (AppState.melody_playlist[i]) {
+			if (counter == playlist_pos)
+				return i;
+			counter++;
+		}
+	}
+	return -1;
+}
+
+int GetActiveMelodiesCount(void) {
+	int count = 0;
+	int total = Music_GetMelodyCount();
+	for (int i = 0; i < total; i++) {
+		if (AppState.melody_playlist[i])
+			count++;
+	}
+	return count;
+}
 
 void GUI_Init(void) {
 	ssd1306_Init();
@@ -159,11 +157,24 @@ void GUI_GoToScreen_Light(void) {
 }
 
 void GUI_GoToScreen_Music(void) {
-	music_cursor = 0;
-	music_list_offset = 0;
+	came_from_playlist = false;
 	CurrentScreen.draw = Screen_Music_Draw;
 	CurrentScreen.input = Screen_Music_Input;
 	CurrentScreen.name = "Music";
+}
+
+void GUI_GoToScreen_AlarmPlaylist(void) {
+	came_from_playlist = true;
+	CurrentScreen.draw = Screen_AlarmPlaylist_Draw;
+	CurrentScreen.input = Screen_AlarmPlaylist_Input;
+	CurrentScreen.name = "Playlist";
+}
+
+void GUI_GoToScreen_MelodySettings(void) {
+	edit_pos = 0;
+	CurrentScreen.draw = Screen_MelodySettings_Draw;
+	CurrentScreen.input = Screen_MelodySettings_Input;
+	CurrentScreen.name = "MelodySet";
 }
 
 void GUI_GoToScreen_Sleep(void) {
@@ -758,12 +769,11 @@ void Screen_Light_Input(int8_t enc, uint8_t btn) {
 }
 
 void Screen_Music_Draw(void) {
-	const char *title = "--- MELODY LIST ---";
+	const char *title = "--- ALL MELODIES ---";
 	uint8_t title_x = Helper_GetCenterX(title, Font_6x8);
 	ssd1306_SetCursor(title_x, 0);
 	ssd1306_WriteString((char*) title, Font_6x8, White);
-
-	int total_items = Music_GetMelodyCount() + 1;
+	int total_items = Music_GetMelodyCount() + 2;
 
 	for (int i = 0; i < MUSIC_VISIBLE_ROWS; i++) {
 		int item_index = music_list_offset + i;
@@ -780,13 +790,17 @@ void Screen_Music_Draw(void) {
 
 		ssd1306_SetCursor(10, y_pos);
 
-		if (item_index < MELODIES_COUNT) {
-			const char *name = Music_GetMelodyName(item_index);
-
-			if (AppState.is_alarm_ringing) {
-
+		if (item_index == 0) {
+			ssd1306_WriteString("[ Alarm Playlist ]", Font_6x8, White);
+		} else if (item_index <= Music_GetMelodyCount()) {
+			int real_melody_id = item_index - 1;
+			const char *name = Music_GetMelodyName(real_melody_id);
+			if (AppState.melody_playlist[real_melody_id]) {
+				sprintf(str_buf, "* %s", name);
+				ssd1306_WriteString(str_buf, Font_6x8, White);
+			} else {
+				ssd1306_WriteString((char*) name, Font_6x8, White);
 			}
-			ssd1306_WriteString((char*) name, Font_6x8, White);
 		} else {
 			ssd1306_WriteString("Back", Font_6x8, White);
 		}
@@ -796,7 +810,6 @@ void Screen_Music_Draw(void) {
 		ssd1306_SetCursor(120, 12);
 		ssd1306_WriteString("^", Font_6x8, White);
 	}
-
 	if (music_list_offset + MUSIC_VISIBLE_ROWS < total_items) {
 		ssd1306_SetCursor(120, 48);
 		ssd1306_WriteString("v", Font_6x8, White);
@@ -804,27 +817,22 @@ void Screen_Music_Draw(void) {
 }
 
 void Screen_Music_Input(int8_t enc, uint8_t btn) {
-	int total_items = Music_GetMelodyCount() + 1;
+	int total_items = Music_GetMelodyCount() + 2;
 
 	if (enc != 0) {
 		music_cursor += enc;
-
 		if (music_cursor < 0)
 			music_cursor = total_items - 1;
 		if (music_cursor >= total_items)
 			music_cursor = 0;
-
 		if (music_cursor >= music_list_offset + MUSIC_VISIBLE_ROWS) {
 			music_list_offset = music_cursor - MUSIC_VISIBLE_ROWS + 1;
 		}
 		if (music_cursor < music_list_offset) {
 			music_list_offset = music_cursor;
 		}
-
-		if (music_cursor == 0 && music_list_offset > 0) {
+		if (music_cursor == 0 && music_list_offset > 0)
 			music_list_offset = 0;
-		}
-
 		if (music_cursor == total_items - 1) {
 			music_list_offset = total_items - MUSIC_VISIBLE_ROWS;
 			if (music_list_offset < 0)
@@ -833,23 +841,224 @@ void Screen_Music_Input(int8_t enc, uint8_t btn) {
 	}
 
 	if (btn == 1) {
-
-		if (music_cursor < MELODIES_COUNT) {
-			Music_SelectMelody(music_cursor);
-			AppState.is_alarm_ringing = true;
-			AppState.is_preview_mode = true;
-		}
-
-		else {
+		if (music_cursor == 0) {
+			GUI_GoToScreen_AlarmPlaylist();
+		} else if (music_cursor <= Music_GetMelodyCount()) {
+			melody_edit_index = music_cursor - 1;
+			came_from_playlist = false;
+			GUI_GoToScreen_MelodySettings();
+		} else {
 			GUI_GoToScreen_Menu();
 		}
 	}
 
 	if (btn == 2) {
-		if (AppState.is_alarm_ringing) {
-			AppState.is_alarm_ringing = false;
+		GUI_GoToScreen_Menu();
+	}
+}
+
+void Screen_AlarmPlaylist_Draw(void) {
+	const char *title = "- ALARM PLAYLIST -";
+	uint8_t title_x = Helper_GetCenterX(title, Font_6x8);
+	ssd1306_SetCursor(title_x, 0);
+	ssd1306_WriteString((char*) title, Font_6x8, White);
+
+	int active_count = GetActiveMelodiesCount();
+	int total_items = active_count + 1;
+
+	if (active_count == 0) {
+		ssd1306_SetCursor(10, 20);
+		ssd1306_WriteString("List is empty!", Font_6x8, White);
+		ssd1306_SetCursor(10, 40);
+		if (playlist_cursor == 0)
+			ssd1306_WriteString("> Back", Font_6x8, White);
+		else
+			ssd1306_WriteString("  Back", Font_6x8, White);
+		return;
+	}
+
+	for (int i = 0; i < MUSIC_VISIBLE_ROWS; i++) {
+		int item_index = playlist_offset + i;
+		if (item_index >= total_items)
+			break;
+
+		uint8_t y_pos = 12 + (i * 12);
+
+		if (item_index == playlist_cursor) {
+			ssd1306_SetCursor(0, y_pos);
+			ssd1306_WriteString(">", Font_6x8, White);
+		}
+
+		ssd1306_SetCursor(10, y_pos);
+
+		if (item_index < active_count) {
+			int real_id = GetRealID_From_PlaylistPos(item_index);
+			if (real_id != -1) {
+				const char *name = Music_GetMelodyName(real_id);
+				ssd1306_WriteString((char*) name, Font_6x8, White);
+			}
 		} else {
-			GUI_GoToScreen_Menu();
+			ssd1306_WriteString("Back", Font_6x8, White);
+		}
+	}
+
+	if (playlist_offset > 0) {
+		ssd1306_SetCursor(120, 12);
+		ssd1306_WriteString("^", Font_6x8, White);
+	}
+	if (playlist_offset + MUSIC_VISIBLE_ROWS < total_items) {
+		ssd1306_SetCursor(120, 48);
+		ssd1306_WriteString("v", Font_6x8, White);
+	}
+}
+
+void Screen_AlarmPlaylist_Input(int8_t enc, uint8_t btn) {
+	int active_count = GetActiveMelodiesCount();
+	int total_items = active_count + 1;
+
+	if (active_count == 0)
+		total_items = 1;
+
+	if (enc != 0) {
+		playlist_cursor += enc;
+		if (playlist_cursor < 0)
+			playlist_cursor = total_items - 1;
+		if (playlist_cursor >= total_items)
+			playlist_cursor = 0;
+
+		if (playlist_cursor >= playlist_offset + MUSIC_VISIBLE_ROWS) {
+			playlist_offset = playlist_cursor - MUSIC_VISIBLE_ROWS + 1;
+		}
+		if (playlist_cursor < playlist_offset) {
+			playlist_offset = playlist_cursor;
+		}
+		if (playlist_cursor == 0 && playlist_offset > 0)
+			playlist_offset = 0;
+		if (playlist_cursor == total_items - 1) {
+			playlist_offset = total_items - MUSIC_VISIBLE_ROWS;
+			if (playlist_offset < 0)
+				playlist_offset = 0;
+		}
+	}
+
+	if (btn == 1) {
+		if (active_count > 0 && playlist_cursor < active_count) {
+			int real_id = GetRealID_From_PlaylistPos(playlist_cursor);
+			if (real_id != -1) {
+				melody_edit_index = real_id;
+				came_from_playlist = true;
+				GUI_GoToScreen_MelodySettings();
+			}
+		} else {
+			GUI_GoToScreen_Music();
+		}
+	}
+
+	if (btn == 2) {
+		GUI_GoToScreen_Music();
+	}
+}
+
+void Screen_MelodySettings_Draw(void) {
+	const char *melody_name = Music_GetMelodyName(melody_edit_index);
+	uint8_t title_x = Helper_GetCenterX(melody_name, Font_6x8);
+	ssd1306_SetCursor(title_x, 0);
+	ssd1306_WriteString((char*) melody_name, Font_6x8, White);
+
+	uint8_t row1_y = 11;
+	if (edit_pos == 0) {
+		ssd1306_SetCursor(0, row1_y);
+		ssd1306_WriteString(">", Font_6x8, White);
+	}
+	ssd1306_SetCursor(10, row1_y);
+	sprintf(str_buf, "Alarm list: %s",
+			AppState.melody_playlist[melody_edit_index] ? "YES" : "NO");
+	ssd1306_WriteString(str_buf, Font_6x8, White);
+
+	uint8_t row2_y = 21;
+	if (edit_pos == 1) {
+		ssd1306_SetCursor(0, row2_y);
+		ssd1306_WriteString(">", Font_6x8, White);
+	}
+	ssd1306_SetCursor(10, row2_y);
+
+	bool is_playing_this = (AppState.is_alarm_ringing
+			&& Music_GetCurrentMelodyIndex() == melody_edit_index);
+	sprintf(str_buf, "Play: %s", is_playing_this ? "YES" : "NO");
+	ssd1306_WriteString(str_buf, Font_6x8, White);
+
+	const char *vol_label = "Volume:";
+	uint8_t vol_x = Helper_GetCenterX(vol_label, Font_6x8);
+	ssd1306_SetCursor(vol_x, 34);
+	ssd1306_WriteString((char*) vol_label, Font_6x8, White);
+
+	sprintf(str_buf, "%d%%", AppState.volume);
+	uint8_t val_x = Helper_GetCenterX(str_buf, Font_11x18);
+	uint8_t val_y = 44;
+
+	if (edit_pos == 2) {
+		ssd1306_SetCursor(val_x - 15, val_y);
+		ssd1306_WriteString("<", Font_11x18, White);
+
+		ssd1306_SetCursor(val_x + 35, val_y);
+		ssd1306_WriteString(">", Font_11x18, White);
+	}
+
+	ssd1306_SetCursor(val_x, val_y);
+	ssd1306_WriteString(str_buf, Font_11x18, White);
+}
+
+void Screen_MelodySettings_Input(int8_t enc, uint8_t btn) {
+	if (edit_pos == 2) {
+		if (enc != 0) {
+			int16_t new_vol = AppState.volume + (enc * 5);
+			if (new_vol > 100)
+				new_vol = 100;
+			if (new_vol < 0)
+				new_vol = 0;
+			AppState.volume = (uint8_t) new_vol;
+		}
+		if (btn == 1) {
+			edit_pos = 0;
+		}
+	} else {
+		if (enc != 0) {
+			if (edit_pos == 0) {
+				AppState.melody_playlist[melody_edit_index] =
+						!AppState.melody_playlist[melody_edit_index];
+			} else if (edit_pos == 1) {
+				bool is_playing = AppState.is_alarm_ringing;
+				if (enc > 0 && !is_playing) {
+					Music_SelectMelody(melody_edit_index);
+					AppState.is_alarm_ringing = true;
+					AppState.is_preview_mode = true;
+				} else if (enc < 0 && is_playing) {
+					AppState.is_alarm_ringing = false;
+				} else {
+					if (is_playing)
+						AppState.is_alarm_ringing = false;
+					else {
+						Music_SelectMelody(melody_edit_index);
+						AppState.is_alarm_ringing = true;
+						AppState.is_preview_mode = true;
+					}
+				}
+			}
+		}
+
+		if (btn == 1) {
+			edit_pos++;
+			if (edit_pos > 2)
+				edit_pos = 0;
+		}
+	}
+
+	if (btn == 2) {
+		Flash_SaveSettings();
+		if (came_from_playlist) {
+			GUI_GoToScreen_AlarmPlaylist();
+		} else {
+			GUI_GoToScreen_Music();
 		}
 	}
 }

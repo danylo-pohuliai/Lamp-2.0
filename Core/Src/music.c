@@ -42,6 +42,35 @@ void Music_SelectMelody(uint8_t index) {
 	}
 }
 
+uint8_t Music_GetCurrentMelodyIndex(void) {
+	return current_melody_index;
+}
+
+void Music_SelectRandomFromPlaylist(void) {
+	int total_melodies = Music_GetMelodyCount();
+	uint8_t active_indices[MAX_MELODIES_IN_MASK];
+	int active_count = 0;
+
+	for (int i = 0; i < total_melodies; i++) {
+		if (AppState.melody_playlist[i] == true) {
+			active_indices[active_count] = i;
+			active_count++;
+		}
+	}
+
+	if (active_count == 0) {
+		Music_SelectMelody(0);
+		return;
+	}
+
+	uint32_t seed = AppState.now.seconds + HAL_GetTick();
+	srand(seed);
+
+	int random_pick = rand() % active_count;
+	uint8_t selected_melody_id = active_indices[random_pick];
+	Music_SelectMelody(selected_melody_id);
+}
+
 static void PlayTone(uint16_t freq) {
 	if (freq == 0 || current_volume == 0) {
 		__HAL_TIM_SET_COMPARE(BUZZER_TIM, BUZZER_CHANNEL, 0);
@@ -88,7 +117,7 @@ void Music_PlayAlarmLoop(bool use_fade_in) {
 				current_volume = 100;
 			}
 		} else {
-			current_volume = 100;
+			current_volume = AppState.volume;
 		}
 
 		uint16_t note = melody->data[i * 2];
@@ -111,7 +140,7 @@ void Music_PlayAlarmLoop(bool use_fade_in) {
 
 	Music_Stop();
 
-	for (int k = 0; k < 20; k++) {
+	for (int k = 0; k < 10; k++) {
 		if (!AppState.is_alarm_ringing) {
 			alarm_start_tick = 0;
 			return;
