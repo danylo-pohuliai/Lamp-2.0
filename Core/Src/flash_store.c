@@ -8,15 +8,15 @@
 #endif
 #define FLASH_END_ADDR   (FLASH_START_ADDR + FLASH_PAGE_SIZE)
 #define SETTINGS_SIZE    (sizeof(Settings_t))
-#define MAGIC_NUMBER     0xA5
+#define MAGIC_NUMBER     0xCAFEBABE
 
 extern volatile SystemState_t AppState;
 
 static uint32_t Find_Empty_Slot(void) {
 	uint32_t addr = FLASH_START_ADDR;
 
-	while (addr < FLASH_END_ADDR - SETTINGS_SIZE) {
-		if (*(uint8_t*) addr == 0xFF) {
+	while (addr <= FLASH_END_ADDR - SETTINGS_SIZE) {
+		if (*(uint32_t*) addr == 0xFFFFFFFF) {
 			return addr;
 		}
 
@@ -30,7 +30,7 @@ static uint32_t Find_Last_Valid_Slot(void) {
 	uint32_t addr = FLASH_START_ADDR;
 	uint32_t last_valid_addr = 0;
 
-	while (addr < FLASH_END_ADDR - SETTINGS_SIZE) {
+	while (addr <= FLASH_END_ADDR - SETTINGS_SIZE) {
 		Settings_t *ptr = (Settings_t*) addr;
 
 		if (ptr->magic_num == MAGIC_NUMBER) {
@@ -49,6 +49,7 @@ void Flash_SaveSettings(void) {
 	memset(&data, 0, sizeof(Settings_t));
 	data.magic_num = MAGIC_NUMBER;
 	data.alarms_count = AppState.alarms_count;
+	data.fade_speed = AppState.fade_speed;
 	data.melody_mask = 0;
 	int total_melodies = Music_GetMelodyCount();
 	if (total_melodies > 32)
@@ -64,8 +65,17 @@ void Flash_SaveSettings(void) {
 			(AppState.alarms_count > MAX_ALARMS) ?
 			MAX_ALARMS :
 													AppState.alarms_count;
-	memcpy(data.alarms, (void*) AppState.alarms,
-			alarms_to_copy * sizeof(Alarm_t));
+
+	for (int i = 0; i < alarms_to_copy; i++) {
+		uint8_t hrs = AppState.alarms[i].hours & 0x1F;
+
+		if (AppState.alarms[i].active) {
+			hrs |= 0x80;
+		}
+
+		data.alarms[i].active_and_hours = hrs;
+		data.alarms[i].mins = AppState.alarms[i].mins;
+	}
 
 	HAL_FLASH_Unlock();
 
@@ -87,7 +97,7 @@ void Flash_SaveSettings(void) {
 	}
 
 	uint32_t *source_addr = (uint32_t*) &data;
-	int words = (sizeof(Settings_t) + 3) / 4;
+	int words = sizeof(Settings_t) / 4;
 
 	for (int i = 0; i < words; i++) {
 		HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, dest_addr, *source_addr);
@@ -107,8 +117,16 @@ void Flash_LoadSettings(void) {
 		AppState.alarms_count = saved->alarms_count;
 		if (AppState.alarms_count > MAX_ALARMS)
 			AppState.alarms_count = MAX_ALARMS;
-		memcpy((void*) AppState.alarms, saved->alarms,
-				AppState.alarms_count * sizeof(Alarm_t));
+
+		AppState.fade_speed = (saved->fade_speed == 0) ? 1 : saved->fade_speed;
+		for (int i = 0; i < AppState.alarms_count; i++) {
+			uint8_t packed_val = saved->alarms[i].active_and_hours;
+
+			AppState.alarms[i].hours = packed_val & 0x1F;
+			AppState.alarms[i].active = (packed_val & 0x80) != 0;
+			AppState.alarms[i].mins = saved->alarms[i].mins;
+		}
+
 		int total_melodies = Music_GetMelodyCount();
 		if (total_melodies > 32)
 			total_melodies = 32;
@@ -122,6 +140,7 @@ void Flash_LoadSettings(void) {
 		}
 	} else {
 		AppState.alarms_count = 0;
+		AppState.fade_speed = 3;
 		int total = Music_GetMelodyCount();
 		AppState.melody_playlist[0] = true;
 		for (int i = 1; i < total; i++)

@@ -199,7 +199,7 @@ void Screen_Main_Draw(void) {
 	ssd1306_SetCursor(0, 0);
 	ssd1306_WriteString(str_buf, Font_6x8, White);
 
-	sprintf(str_buf, "Brightness: %d%%", AppState.brightness);
+	sprintf(str_buf, "Brightness: %d%%", AppState.target_brightness);
 	ssd1306_SetCursor(0, 9);
 	ssd1306_WriteString(str_buf, Font_6x8, White);
 	int v_int = (int) AppState.battery_voltage;
@@ -230,7 +230,7 @@ void Screen_Main_Draw(void) {
 
 void Screen_Main_Input(int8_t enc, uint8_t btn) {
 	if (enc != 0) {
-		int8_t temp = AppState.brightness + (enc * 5);
+		int8_t temp = AppState.target_brightness + (enc * 5);
 		if (temp > 100)
 			temp = 100;
 		if (temp < 0)

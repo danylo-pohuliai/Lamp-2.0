@@ -61,6 +61,7 @@ osThreadId MusicTaskHandle;
 osThreadId AlarmTaskHandle;
 osThreadId CommTaskHandle;
 osThreadId InputTaskHandle;
+osThreadId FaderTaskHandle;
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -72,6 +73,7 @@ void StartMusicTask(void const *argument);
 void StartAlarmTask(void const *argument);
 void StartCommTask(void const *argument);
 void StartInputTask(void const *argument);
+void StartFaderTask(void const *argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -138,6 +140,10 @@ void MX_FREERTOS_Init(void) {
 	/* definition and creation of InputTask */
 	osThreadDef(InputTask, StartInputTask, osPriorityAboveNormal, 0, 128);
 	InputTaskHandle = osThreadCreate(osThread(InputTask), NULL);
+
+	/* definition and creation of FaderTask */
+	osThreadDef(FaderTask, StartFaderTask, osPriorityRealtime, 0, 128);
+	FaderTaskHandle = osThreadCreate(osThread(FaderTask), NULL);
 
 	/* USER CODE BEGIN RTOS_THREADS */
 	/* add threads, ... */
@@ -221,6 +227,8 @@ void StartAlarmTask(void const *argument) {
  */
 /* USER CODE END Header_StartCommTask */
 void StartCommTask(void const *argument) {
+	/* USER CODE BEGIN StartCommTask */
+	/* Infinite loop */
 	Bluetooth_Init();
 
 	bool is_bt_connected = false;
@@ -280,6 +288,7 @@ void StartCommTask(void const *argument) {
 
 		osDelay(15);
 	}
+	/* USER CODE END StartCommTask */
 }
 
 /* USER CODE BEGIN Header_StartInputTask */
@@ -352,6 +361,25 @@ void StartInputTask(void const *argument) {
 		osDelay(10);
 	}
 	/* USER CODE END StartInputTask */
+}
+
+/* USER CODE BEGIN Header_StartFaderTask */
+/**
+ * @brief Function implementing the FaderTask thread.
+ * @param argument: Not used
+ * @retval None
+ */
+/* USER CODE END Header_StartFaderTask */
+void StartFaderTask(void const *argument) {
+	/* USER CODE BEGIN StartFaderTask */
+	/* Infinite loop */
+	for (;;) {
+		if (AppState.brightness != AppState.target_brightness) {
+			AppState_ProcessFader();
+		}
+		osDelay(15 * AppState.fade_speed);
+	}
+	/* USER CODE END StartFaderTask */
 }
 
 /* Private application code --------------------------------------------------*/

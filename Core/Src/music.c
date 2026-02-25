@@ -63,11 +63,20 @@ void Music_SelectRandomFromPlaylist(void) {
 		return;
 	}
 
-	uint32_t seed = AppState.now.seconds + HAL_GetTick();
-	srand(seed);
+	static bool is_seeded = false;
+	if (!is_seeded) {
+		srand(HAL_GetTick() + AppState.now.seconds);
+		is_seeded = true;
+	}
 
 	int random_pick = rand() % active_count;
 	uint8_t selected_melody_id = active_indices[random_pick];
+
+	if (active_count > 1 && selected_melody_id == current_melody_index) {
+		random_pick = (random_pick + 1) % active_count;
+		selected_melody_id = active_indices[random_pick];
+	}
+
 	Music_SelectMelody(selected_melody_id);
 }
 
@@ -107,11 +116,17 @@ void Music_PlayAlarmLoop(bool use_fade_in) {
 		}
 		if (use_fade_in) {
 			uint32_t elapsed_ms = HAL_GetTick() - alarm_start_tick;
-			if (elapsed_ms < 4000) {
-				current_volume = 10;
-			} else if (elapsed_ms < 8000) {
-				current_volume = 20;
+			if (elapsed_ms < 3000) {
+				current_volume = 3;
+			} else if (elapsed_ms < 6000) {
+				current_volume = 5;
+			} else if (elapsed_ms < 9000) {
+				current_volume = 7;
 			} else if (elapsed_ms < 12000) {
+				current_volume = 12;
+			} else if (elapsed_ms < 15000) {
+				current_volume = 20;
+			} else if (elapsed_ms < 18000) {
 				current_volume = 35;
 			} else {
 				current_volume = 100;

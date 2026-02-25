@@ -8,9 +8,10 @@
 
 volatile SystemState_t AppState = { .now = { .hours = 12, .minutes = 0,
 		.seconds = 0, .day = 1, .month = 1, .year = 26, .day_of_week = 4 },
-		.battery_voltage = 0.0f, .brightness = 0, .volume = 100, .is_light_on =
-				false, .alarms_count = 0, .is_alarm_ringing = false,
-		.is_preview_mode = 0 };
+		.battery_voltage = 0.0f, .brightness = 0, .target_brightness = 0,
+		.fade_speed = 3, .volume = 100, .is_light_on =
+		false, .alarms_count = 0, .is_alarm_ringing = false, .is_preview_mode =
+				0 };
 
 static const char *week_days[] = { "Err", "Mon", "Tue", "Wed", "Thu", "Fri",
 		"Sat", "Sun" };
@@ -93,11 +94,29 @@ void AppState_GetNextAlarmString(char *buffer) {
 	}
 
 	if (found) {
-		sprintf(buffer, "Time remaining: %ldh %ldm", min_diff / 60,
-				min_diff % 60);
+		sprintf(buffer, "Time rema-ng: %ldh%ldm", min_diff / 60, min_diff % 60);
 	} else {
 		strcpy(buffer, "No active alarms");
 	}
+}
+
+void AppState_GetTimeUntilAlarmString(uint8_t id, char *buffer) {
+	if (id >= AppState.alarms_count) {
+		strcpy(buffer, "ERR: Invalid ID");
+		return;
+	}
+
+	int32_t current_total_mins = AppState.now.hours * 60 + AppState.now.minutes;
+	int32_t alarm_total_mins = AppState.alarms[id].hours * 60
+			+ AppState.alarms[id].mins;
+
+	int32_t diff = alarm_total_mins - current_total_mins;
+
+	if (diff <= 0) {
+		diff += 1440;
+	}
+
+	sprintf(buffer, "Rings in: %ldh%02ldm", diff / 60, diff % 60);
 }
 
 void AppState_CheckAlarms(void) {
@@ -114,9 +133,9 @@ void AppState_CheckAlarms(void) {
 		if (AppState.alarms[i].active
 				&& AppState.alarms[i].hours == AppState.now.hours
 				&& AppState.alarms[i].mins == AppState.now.minutes) {
+			AppState.is_preview_mode = false;
 			Music_SelectRandomFromPlaylist();
 			AppState.is_alarm_ringing = true;
-			AppState.is_preview_mode = false;
 			return;
 		}
 	}
@@ -126,8 +145,17 @@ void AppState_SetBrightness(uint8_t new_val) {
 	if (new_val > 100)
 		new_val = 100;
 
-	AppState.brightness = new_val;
-	Dimmer_SetValue(AppState.brightness);
+	AppState.target_brightness = new_val;
+}
+
+void AppState_ProcessFader(void) {
+	if (AppState.brightness < AppState.target_brightness) {
+		AppState.brightness++;
+		Dimmer_SetValue(AppState.brightness);
+	} else if (AppState.brightness > AppState.target_brightness) {
+		AppState.brightness--;
+		Dimmer_SetValue(AppState.brightness);
+	}
 }
 
 const char* AppState_GetDayOfWeekStr(uint8_t day_idx) {

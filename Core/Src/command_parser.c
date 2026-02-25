@@ -4,6 +4,7 @@
 #include "gui.h"
 #include "music.h"
 #include "ssd1306.h"
+#include "flash_store.h"
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
@@ -58,6 +59,31 @@ static bool Parse_Time_Flexible(char *args, int8_t *h, int8_t *m) {
 	return false;
 }
 
+static void Show_Music_Info(void) {
+	int len = 0;
+	int count = Music_GetMelodyCount();
+
+	len += sprintf(tx_buffer + len, "--- MELODY LIST ---\r\n");
+	len += sprintf(tx_buffer + len, "ID | PlayList | Name\r\n");
+
+	for (int i = 0; i < count; i++) {
+		const char *name = Music_GetMelodyName(i);
+		bool in_playlist = AppState.melody_playlist[i];
+
+		if (len > 750) {
+			Bluetooth_Send(tx_buffer);
+			len = 0;
+		}
+
+		len += sprintf(tx_buffer + len, "[%d]   %s    %s\r\n", i,
+				in_playlist ? "[+]" : "[ ]", name);
+	}
+
+	len += sprintf(tx_buffer + len, "-------------------\r\n");
+	Bluetooth_Send(tx_buffer);
+	return;
+}
+
 static void Cmd_SetBrightness(char *args) {
 	int val;
 	if (sscanf(args, "%d", &val) == 1) {
@@ -91,6 +117,9 @@ static void Cmd_SetAlarm(char *args) {
 						AppState.alarms[i].active ? "ON" : "OFF");
 			}
 		}
+		char next_alarm_str[32];
+		AppState_GetNextAlarmString(next_alarm_str);
+		len += sprintf(tx_buffer + len, "> %s\r\n", next_alarm_str);
 
 		Reply(tx_buffer);
 		return;
@@ -107,18 +136,20 @@ static void Cmd_SetAlarm(char *args) {
 	int8_t h, m;
 	if (Parse_Time_Flexible(time_str, &h, &m)) {
 		if (h >= 0 && h < 24 && m >= 0 && m < 60) {
+			char buf[80];
+			char next_str[32];
 			if (id < AppState.alarms_count) {
 				AppState_EditAlarm(id, h, m);
-				char buf[40];
-				sprintf(buf, "OK: Alarm %d Modified to %02d:%02d\r\n", id, h,
-						m);
+				AppState_GetTimeUntilAlarmString((uint8_t) id, next_str);
+				sprintf(buf, "OK: Alarm %d Modified to %02d:%02d\r\n> %s\r\n",
+						id, h, m, next_str);
 				Reply(buf);
 			} else {
 				AppState_AddAlarm(h, m);
-				char buf[50];
 				int new_id = AppState.alarms_count - 1;
-				sprintf(buf, "OK: New Alarm [%d] Added %02d:%02d\r\n", new_id,
-						h, m);
+				AppState_GetTimeUntilAlarmString((uint8_t) id, next_str);
+				sprintf(buf, "OK: New Alarm [%d] Added %02d:%02d\r\n %s\r\n",
+						new_id, h, m, next_str);
 				Reply(buf);
 			}
 		} else {
@@ -195,32 +226,15 @@ static void Cmd_SetDate(char *args) {
 
 static void Cmd_MusicControl(char *args) {
 	if (*args == '\0') {
-		int len = 0;
-		int count = Music_GetMelodyCount();
-
-		len += sprintf(tx_buffer + len, "--- MELODY LIST ---\r\n");
-		len += sprintf(tx_buffer + len, "ID | PlayList | Name\r\n");
-
-		for (int i = 0; i < count; i++) {
-			const char *name = Music_GetMelodyName(i);
-			bool in_playlist = AppState.melody_playlist[i];
-
-			if (len > 750) {
-				Bluetooth_Send(tx_buffer);
-				len = 0;
-			}
-
-			len += sprintf(tx_buffer + len, "[%d]   %s    %s\r\n", i,
-					in_playlist ? "[+]" : "[ ]", name);
-		}
-
-		len += sprintf(tx_buffer + len, "-------------------\r\n");
-		Bluetooth_Send(tx_buffer);
+		Show_Music_Info();
 		return;
 	}
 
 	int id;
-	if (sscanf(args, "%d", &id) == 1) {
+	char modifier = '\0';
+	int parsed_args = sscanf(args, "%d%c", &id, &modifier);
+
+	if (parsed_args >= 1) {
 		int total = Music_GetMelodyCount();
 
 		if (id >= 0 && id < total) {
@@ -234,18 +248,25 @@ static void Cmd_MusicControl(char *args) {
 						Music_GetMelodyName(id));
 				Reply(buf);
 			} else {
+				bool use_fade = false;
+				if (parsed_args == 2 && (modifier == 'f' || modifier == 'F')) {
+					use_fade = true;
+				}
+
 				Music_SelectMelody((uint8_t) id);
+				AppState.is_preview_mode = !use_fade;
 				AppState.is_alarm_ringing = true;
-				char buf[64];
-				sprintf(buf, "OK: Playing [%d] %s\r\n", id,
-						Music_GetMelodyName(id));
+
+				char buf[80];
+				sprintf(buf, "OK: Playing [%d] %s (Fade: %s)\r\n", id,
+						Music_GetMelodyName(id), use_fade ? "ON" : "OFF");
 				Reply(buf);
 			}
 		} else {
 			Reply("ERR: Invalid Melody ID\r\n");
 		}
 	} else {
-		Reply("ERR: Try 'm' or 'm<ID>'\r\n");
+		Reply("ERR: Try 'm', 'm<ID>' or 'm<ID>f'\r\n");
 	}
 }
 
@@ -268,6 +289,26 @@ static void Cmd_SetVolume(char *args) {
 	}
 }
 
+static void Cmd_SetFadeSpeed(char *args) {
+	int val;
+	if (sscanf(args, "%d", &val) == 1) {
+		if (val > 100)
+			val = 100;
+		if (val <= 0)
+			val = 1;
+
+		AppState.fade_speed = (uint8_t) val;
+
+		Flash_SaveSettings();
+
+		char buf[45];
+		sprintf(buf, "OK: Fade speed %d (delay %d ms)\r\n", val, val * 10);
+		Reply(buf);
+	} else {
+		Reply("ERR: Invalid speed. Try 'f 3'\r\n");
+	}
+}
+
 static void Cmd_Info(void) {
 	int len = 0;
 	const char *dow_str = AppState_GetDayOfWeekStr(AppState.now.day_of_week);
@@ -278,6 +319,8 @@ static void Cmd_Info(void) {
 			AppState.now.day, AppState.now.month, AppState.now.year);
 	len += sprintf(tx_buffer + len, "Light: %s (%d%%)\r\n",
 			AppState.is_light_on ? "ON" : "OFF", AppState.brightness);
+	len += sprintf(tx_buffer + len, "Fade Speed: (%d)\r\n",
+			AppState.fade_speed);
 
 	len += sprintf(tx_buffer + len, "Alarms (%d):\r\n", AppState.alarms_count);
 	for (int i = 0; i < AppState.alarms_count; i++) {
@@ -285,6 +328,10 @@ static void Cmd_Info(void) {
 				AppState.alarms[i].hours, AppState.alarms[i].mins,
 				AppState.alarms[i].active ? "ON" : "OFF");
 	}
+	char next_alarm_str[32];
+	AppState_GetNextAlarmString(next_alarm_str);
+	len += sprintf(tx_buffer + len, "> %s\r\n", next_alarm_str);
+
 	int bat_pct = 0;
 	if (AppState.battery_voltage > 3.0f) {
 		bat_pct = (int) ((AppState.battery_voltage - 3.0f) * 100.0f / 1.2f);
@@ -305,17 +352,25 @@ static void Cmd_Info(void) {
 	len += sprintf(tx_buffer + len, "t<H:M:S>: Set Time (e.g. t9:30:0)\r\n");
 	len += sprintf(tx_buffer + len, "d<D.M.Y>: Set Date (e.g. d 1.1.26)\r\n");
 	len += sprintf(tx_buffer + len, "a: List Alarms\r\n");
+	len += sprintf(tx_buffer + len, "c: Test Alarm\r\n");
 	len += sprintf(tx_buffer + len, "a<ID><HHMM>: Set/Edit (e.g. a00730)\r\n");
 	len += sprintf(tx_buffer + len, "o<ID>: Toggle ON/OFF (e.g. o 0)\r\n");
 	len += sprintf(tx_buffer + len, "del<ID>: Delete Alarm (e.g. del 0)\r\n");
 	len += sprintf(tx_buffer + len, "m: List Melodies & Playlist\r\n");
 	len += sprintf(tx_buffer + len, "m<ID>: Play/Off Melody (e.g. m1)\r\n");
 	len += sprintf(tx_buffer + len, "r: System Reset\r\n");
+	len += sprintf(tx_buffer + len, "f<1-100>: Set Fade Speed (e.g. f 2)\r\n");
 
 	if (len > 0) {
 		Bluetooth_Send(tx_buffer);
 		printf(">> SENT INFO (length: %d)\n", len);
 	}
+}
+
+static void Cmd_TestAlarm(void) {
+	Music_SelectRandomFromPlaylist();
+	AppState.is_alarm_ringing = true;
+	AppState.is_preview_mode = false;
 }
 
 void CLI_ProcessCommand(char *input) {
@@ -365,9 +420,18 @@ void CLI_ProcessCommand(char *input) {
 		Cmd_SetBrightness(args);
 		break;
 
+	case 'c':
+		Cmd_TestAlarm();
+		break;
+
 	case 'd':
 		Cmd_SetDate(args);
 		break;
+
+	case 'f':
+		Cmd_SetFadeSpeed(args);
+		break;
+
 	case 'm':
 		Cmd_MusicControl(args);
 		break;
@@ -395,8 +459,11 @@ void CLI_ProcessCommand(char *input) {
 							AppState.alarms[id].mins);
 
 					char next_str[32];
+					AppState_GetTimeUntilAlarmString((uint8_t) id, next_str);
+					len += sprintf(tx_buffer + len, "> %s\r\n", next_str);
 					AppState_GetNextAlarmString(next_str);
-					len += sprintf(tx_buffer + len, "%s\r\n", next_str);
+					len += sprintf(tx_buffer + len,
+							"%s to the closest alarm\r\n", next_str);
 				}
 
 				Reply(tx_buffer);
